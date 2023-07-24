@@ -11,6 +11,7 @@ from fileformats.generic import (
     File,
     Directory,
 )
+from fileformats.core.exceptions import FormatMismatchError
 
 import pydra
 from .helpers_file import template_update_single
@@ -425,8 +426,28 @@ class ShellOutSpec:
             # assuming that field should have either default or metadata, but not both
             input_value = getattr(inputs, fld.name, attr.NOTHING)
             if input_value is not attr.NOTHING:
-                if issubclass(fld.type, os.PathLike):
-                    input_value = fld.type(input_value)
+                try:
+                    origin = ty.get_origin(fld.type)
+                except ValueError:
+                    if issubclass(fld.type, os.PathLike):
+                        input_value = fld.type(input_value)
+                else:
+                    if origin is ty.Union:
+                        didnt_match = []
+                        for tp in ty.get_args(fld.type):
+                            if issubclass(tp, os.PathLike):
+                                try:
+                                    input_value = tp(input_value)
+                                except FormatMismatchError:
+                                    didnt_match.append(tp)
+                                else:
+                                    didnt_match = []
+                                    break
+                        if didnt_match:
+                            raise FormatMismatchError(
+                                f"Couldn't convert path, '{input_value}' into "
+                                f"any of the possible formats {didnt_match}"
+                            )
                 additional_out[fld.name] = input_value
             elif (
                 fld.default is None or fld.default == attr.NOTHING
@@ -571,7 +592,10 @@ class ShellOutSpec:
                         )
             return callable_(**call_args_val)
         else:
-            raise Exception("(_field_metadata) is not a current valid metadata key.")
+            raise Exception(
+                f"Metadata for '{fld.name}', does not not contain any of the required fields "
+                f"(\"callable\", \"output_file_template\" or \"value\"): {fld.metadata}."
+            )
 
     def _check_requires(self, fld, inputs):
         """checking if all fields from the requires and template are set in the input
