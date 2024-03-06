@@ -606,6 +606,8 @@ class ShellOutSpec:
                             f"but {argnm} is used"
                         )
             return callable_(**call_args_val)
+        elif fld.metadata.get("mandatory", False):
+            return attr.NOTHING
         else:
             raise Exception(
                 f"Metadata for '{fld.name}', does not not contain any of the required fields "
